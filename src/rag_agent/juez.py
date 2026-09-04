@@ -159,19 +159,21 @@ def juzgar(pregunta: str, docs: list[Document]) -> Dictamen:
         return modelo.invoke(texto_prompt)
 
     # Vía manual: funciona contra cualquier backend.
-    modelo = get_chat_model(temperature=0, max_tokens=max_tokens)
     debug = os.getenv("JUEZ_DEBUG") == "1"
 
-    # Un modelo local falla de vez en cuando. Un reintento con un empujón más
-    # explícito recupera la mayoría de esos casos y sale casi gratis.
+    # El modelo razona antes de responder y a veces agota el presupuesto
+    # antes de escribir el JSON: `content` vuelve vacío. Medido: 138 tokens
+    # de razonamiento para un veredicto de 18. El reintento sube el techo,
+    # no cambia la redacción — la redacción ya se probó y no era la causa.
     intentos = [
-        texto_prompt,
-        texto_prompt + "\n\n/no_think\nNo razones. Devolvé solo el JSON.",
-        texto_prompt + "\n\nRespondé AHORA con una sola línea JSON. Nada más.",
+        (texto_prompt, max_tokens),
+        (texto_prompt, max_tokens * 2),
+        (texto_prompt + "\n\nRespondé AHORA con una sola línea JSON. Nada más.",
+         max_tokens * 4),
     ]
-
     ultimo_error = None
-    for i, prompt in enumerate(intentos):
+    for i, (prompt, techo) in enumerate(intentos):
+        modelo = get_chat_model(temperature=0, max_tokens=techo)
         crudo = _contenido(modelo.invoke(prompt))
         if debug:
             print(f"\n--- intento {i + 1}, respuesta cruda ---\n{crudo!r}\n")
